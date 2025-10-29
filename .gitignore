@@ -1,22 +1,39 @@
-# --- Environnements virtuels ---
-.venv/
-
 # --- Models Générés ---
 models/
 
-# --- Logs & fichiers temporaires ---
+# Environnements virtuels
+venv/
+env/
+.venv/
+
+# Fichiers compilés
+__pycache__/
+*.py[cod]
+
+# Fichiers de configuration locaux
+*.env
+*.ini
+*.cfg
+*.local
+secrets.json
+
+# Fichiers de log
 *.log
-*.pot
-*.tmp
-*.temp
-*.out
 
-# --- Dossiers de build et distribution ---
+# Dossiers de build / distribution
 build/
-lib/
-lib64/
+dist/
+*.egg-info/
 
-# --- OS spécifiques ---
+# IDE / Éditeurs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
 .DS_Store
 Thumbs.db
 
+# Notebooks Jupyter
+.ipynb_checkpoints/
