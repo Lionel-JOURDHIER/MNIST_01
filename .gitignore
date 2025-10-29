@@ -1,0 +1,22 @@
+# --- Environnements virtuels ---
+.venv/
+
+# --- Models Générés ---
+models/
+
+# --- Logs & fichiers temporaires ---
+*.log
+*.pot
+*.tmp
+*.temp
+*.out
+
+# --- Dossiers de build et distribution ---
+build/
+lib/
+lib64/
+
+# --- OS spécifiques ---
+.DS_Store
+Thumbs.db
+
