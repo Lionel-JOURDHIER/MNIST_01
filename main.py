@@ -2,6 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import numpy as np
+import matplotlib.pyplot as plt
+
+from torch.utils.data import TensorDataset, DataLoader
+from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
+
 """ Explication Class VAE
     Variational Autoencoder (VAE) with a classification head for 28x28 grayscale images.
 
