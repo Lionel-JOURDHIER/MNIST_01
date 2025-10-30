@@ -1,9 +1,12 @@
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
+import os
 import numpy as np
 import matplotlib.pyplot as plt
+
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import torch.nn.init as init
 
 from torch.utils.data import TensorDataset, DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
@@ -269,3 +272,231 @@ def load_model(path:str) -> nn.Module :
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = torch.load(path, weights_only=False)
     return model.to(device)
+
+"""Definition vae_loss
+    Computes the loss for a Variational Autoencoder (VAE).
+
+    The loss is a combination of:
+    1. Reconstruction loss (Binary Cross-Entropy) between the input and reconstructed images.
+    2. Kullback-Leibler (KL) divergence between the learned latent distribution and the standard normal distribution.
+
+    Parameters:
+    -----------
+    recon_x : torch.Tensor
+        Reconstructed image tensor of shape (batch_size, 1, 28, 28), output from the decoder.
+    x : torch.Tensor
+        Original input image tensor of shape (batch_size, 1, 28, 28).
+    mu : torch.Tensor
+        Mean of the latent Gaussian distribution (batch_size, latent_dim).
+    logvar : torch.Tensor
+        Log-variance of the latent Gaussian distribution (batch_size, latent_dim).
+
+    Returns:
+    --------
+    torch.Tensor
+        Scalar tensor representing the total VAE loss (BCE + KLD) summed over the batch.
+"""
+def vae_loss(recon_x, x, mu, logvar):
+    BCE = F.binary_cross_entropy(recon_x, x, reduction='mean')
+    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    return BCE + KLD
+
+"""Definition train_model
+    Train a VAE model with a classification head using joint loss.
+
+    The function optimizes the model using a combination of:
+        1. VAE reconstruction + KL divergence loss (vae_loss)
+        2. Classification loss (CrossEntropyLoss)
+       The classification loss can be optionally weighted.
+
+    Learning rate scheduling:
+        - CosineAnnealingLR: smooth decay across epochs
+        - ReduceLROnPlateau: reduce LR when validation loss plateaus
+
+    Parameters:
+    -----------
+    model : nn.Module
+        VAE model with classification head
+    loader : DataLoader
+        Training dataset loader
+    val_loader : DataLoader
+        Validation dataset loader
+    num_epochs : int
+        Number of training epochs
+    lr : float
+        Initial learning rate for Adam optimizer
+    factor : float
+        Factor to reduce LR on plateau (ReduceLROnPlateau)
+    patience : int
+        Number of epochs with no improvement before reducing LR
+
+    Returns:
+    --------
+    model : nn.Module
+        Trained model with best validation weights loaded
+
+    Notes:
+    ------
+    - Uses GPU if available.
+    - Joint loss is computed as: total_loss = vae_loss + 0.5 * classification_loss
+    - Validation loss and accuracy are printed each epoch.
+"""
+def train_model(
+    model: nn.Module, 
+    loader: DataLoader, 
+    val_loader: DataLoader,
+    num_epochs: int = 5, 
+    lr: float = 0.0001, 
+    factor=0.5,
+    patience=3
+    ) -> nn.Module:
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr) 
+    scheduler1 = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=lr) 
+    scheduler2 = ReduceLROnPlateau(
+        optimizer, 
+        mode='min',       # monitors validation loss
+        factor=factor,       # reduce LR by half
+        patience=patience,
+        min_lr=lr       # wait 3 epochs without improvement
+    )
+    for epoch in range(num_epochs):
+        running_loss = 0.0
+        model.train()
+
+        for batch_images, batch_labels in loader:
+            batch_images = batch_images.to(device)
+            batch_labels = batch_labels.to(device, dtype=torch.long)
+
+            optimizer.zero_grad()
+            recon_x, outputs, mu, logvar = model(batch_images)
+
+            loss_vae = vae_loss(recon_x, batch_images, mu, logvar)
+            loss_cls = criterion(outputs, batch_labels)
+            loss = loss_vae + 0.5*loss_cls
+
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item() * batch_images.size(0)
+        
+        scheduler1.step()
+        epoch_loss = running_loss / len(loader.dataset)
+
+        val_loss, val_acc = val_model(model, val_loader, criterion=criterion)
+        scheduler2.step(val_loss)
+        print(f"Epoch {epoch+1}/{num_epochs} | Train Loss: {epoch_loss:.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
+    print('Finished Training')
+    return model
+    
+''' Definition test_model
+    Evaluate a PyTorch model on a dataset and return the accuracy.
+
+    Parameters:
+    model (nn.Module): The trained PyTorch model to evaluate.
+    loader (DataLoader): DataLoader providing the evaluation dataset.
+
+    Returns:
+    float: Accuracy of the model on the dataset, as a percentage.
+'''
+def test_model(model: nn.Module, loader: DataLoader, num_classes=10):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    model.eval()  # passe en mode évaluation
+    correct = 0
+    total = 0
+    
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():  # désactive gradient pour accélérer
+        for images, labels in loader:
+            images = images.to(device)
+            labels = labels.to(device)
+            outputs = model(images)[1]                  # forward pass
+            _, predicted = torch.max(outputs, 1)    # classe avec probabilité max
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            all_preds.append(predicted)
+            all_labels.append(labels)
+
+    accuracy = 100 * correct / total
+    # Confusion matrix
+    all_preds = torch.cat(all_preds)
+    all_labels = torch.cat(all_labels)
+    cm = torch.zeros(num_classes, num_classes, dtype=torch.int64)
+    for t, p in zip(all_labels, all_preds):
+        cm[t, p] += 1
+
+    print(f"Test Accuracy: {accuracy:.2f}%")
+    print("Confusion Matrix:\n", cm)
+    return accuracy, cm
+
+''' Definition val_model
+    Evaluate a model on a validation set.
+
+    Args:
+        model (nn.Module): trained model
+        val_loader (DataLoader): validation dataloader
+        criterion (nn.Module, optional): loss function (e.g. CrossEntropyLoss).
+                                         If None, only accuracy is returned.
+
+    Returns:
+        (val_loss, accuracy)
+        - val_loss (float or None): average loss over validation set
+        - accuracy (float): accuracy in %
+    '''
+def val_model(model: nn.Module, val_loader: DataLoader, criterion : nn.Module) -> float:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    model.eval()  # passe en mode évaluation
+    total_loss = 0.0
+    correct = 0
+    total = 0
+
+    with torch.no_grad():  # désactive gradient pour accélérer
+        for images, labels in val_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+            outputs = model(images)[1]                  # forward pass
+            if criterion is not None:
+                loss = criterion(outputs, labels)
+                total_loss += loss.item() * images.size(0)
+
+            _, predicted = torch.max(outputs, 1)    # classe avec probabilité max
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    
+    val_loss = total_loss / total
+    accuracy = 100 * correct / total
+    return val_loss, accuracy
+
+if __name__ == "__main__":
+    data = data_norm(open_dataset('dataset/train-images-idx3-ubyte',num_images = 60000))
+    labels = open_labels('dataset/train-labels-idx1-ubyte',num_labels = 60000)
+    data_0, labels_0, data_virgin, labels_virgin = create_validation(data,labels,validation_size=8)
+    data_train, labels_train, data_valid, labels_valid = create_validation(data_0,labels_0,validation_size=9992)
+
+
+    loader_train = create_batch(data_train, labels_train, batch_size=64, shuffle=True)
+    loader_valid = create_batch(data_valid, labels_valid, batch_size=64, shuffle=False)
+
+    data_test = data_norm(open_dataset('dataset/t10k-images-idx3-ubyte',num_images = 10000))
+    labels_test = open_labels('dataset/t10k-labels-idx1-ubyte',num_labels = 10000)
+    loader_test = create_batch(data_test, labels_test, batch_size=64, shuffle=True)
+
+    model = VAE(latent_dim=10)
+    model = train_model(
+        model=model, 
+        loader = loader_train, 
+        val_loader = loader_valid,
+        num_epochs = 40, 
+        lr = 0.0001,  
+        factor=0.5,
+        patience=2
+    )
+    test_model(model,loader=loader_test) 
+    save_model(model=model, name='vae_classification.pth')
