@@ -127,3 +127,112 @@ class VAE(nn.Module):
         z = self.reparameterize(mu, logvar)
         recon_x = self.decode(z)
         return recon_x, class_out, mu, logvar
+ 
+''' Definition open_dataset
+    Opens an MNIST dataset file and loads image data into a NumPy array.
+
+    Parameters:
+        path (str): Path to the MNIST images file (e.g., "train-images-idx3-ubyte").
+        image_size (int): Width/height of each image in pixels (default: 28).
+        num_images (int): Number of images to read from the file (default: 10000).
+
+    Returns:
+        numpy.ndarray: A 4D array of shape (num_images, image_size, image_size, 1)
+                       containing the image data as float32.
+    '''
+def open_dataset(path:str, image_size:int = 28, num_images:int = 10000) -> np.ndarray:
+    with open (path,'rb') as f :
+        # Skip header (16 bytes)
+        f.read(16)
+        # Read images
+        buf = f.read(image_size * image_size * num_images)
+    data = np.frombuffer(buf, dtype=np.uint8).astype(np.float32)
+    data = data.reshape(num_images, image_size, image_size)
+    return data
+
+''' Definition data_norm
+    Normalize image data from 0-255 to 0-1 and convert to a PyTorch tensor with a channel dimension.
+
+    Steps:
+    1. Convert the input NumPy array to float32.
+    2. Normalize the data to range [0, 1] by dividing by 255.
+    3. Convert the normalized array to a PyTorch tensor.
+    4. Add a channel dimension at position 1 (unsqueeze).
+
+    Parameters:
+    data (np.ndarray): Input image or array with pixel values 0-255.
+
+    Returns:
+    torch.Tensor: Normalized tensor of shape (batch?, 1, H, W) suitable for PyTorch models.
+    '''
+def data_norm(data:np.ndarray) -> torch.Tensor : 
+    data_f = data.astype('float32')
+    data_n = data_f / 255
+    data_t = torch.tensor(data_n, dtype=torch.float32).unsqueeze(1)
+    return data_t
+
+''' Definition open_labels
+    Load labels from a binary file and return as a PyTorch tensor.
+
+    Parameters:
+    path (str): Path to the binary label file.
+    num_labels (int): Number of labels to read. Defaults to 10000.
+
+    Returns:
+    torch.Tensor: Tensor of labels (dtype=torch.long) suitable for PyTorch loss functions.
+    '''
+def open_labels(path:str, num_labels: int = 10000) -> torch.Tensor : 
+    with open (path,'rb') as f :
+        # Skip header (8 bytes)
+        f.read(8)
+        # Read images
+        buf = f.read(num_labels)
+    labels = np.frombuffer(buf, dtype=np.uint8)
+    labels_t = torch.tensor(labels, dtype=torch.long)  # CrossEntropyLoss exige long
+    return labels_t
+
+""" Definition create_validation
+    Split dataset into training and validation tensors.
+
+    Args:
+        data (torch.Tensor): All images
+        labels (torch.Tensor): All labels
+        validation_size (int): Number of samples for validation
+
+    Returns:
+        data_train, labels_train, data_val, labels_val
+    """
+def create_validation(data:torch.Tensor, labels: torch.Tensor, validation_size:int = 0) -> torch.Tensor :
+    data_size = len(labels)
+
+    if validation_size >= data_size : 
+        raise ValueError (f"The Argument validation_size ({validation_size}) must be smaller than dataset size ({data_size})")
+
+    if validation_size == 0:
+        return data, labels, None, None
+     
+    data_train = data[:-validation_size]
+    labels_train = labels[0:-validation_size]
+    print(len(labels_train))
+    data_valid = data[-validation_size:]
+    labels_valid = labels[-validation_size:]
+    print(len(labels_valid))
+
+    return data_train, labels_train, data_valid, labels_valid
+
+""" Definition create_batch
+    Crée un DataLoader PyTorch à partir des tenseurs data et labels.
+
+    Args:
+        data (torch.Tensor): Images de forme (N, 1, H, W)
+        labels (torch.Tensor): Labels de forme (N,)
+        batch_size (int): Taille des batches
+        shuffle (bool): Si True, mélange les données
+
+    Returns:
+        DataLoader: itérable donnant des batches (images, labels)
+    """
+def create_batch(data:torch.Tensor, labels: torch.Tensor, batch_size: int = 32, shuffle: bool = True) -> DataLoader:
+    dataset = TensorDataset(data, labels)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return loader
