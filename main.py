@@ -99,10 +99,13 @@ class VAE(nn.Module):
             nn.ReLU()
         )
         self.decoder = nn.Sequential(
+            nn.Upsample(scale_factor=3, mode='nearest'),
             nn.ConvTranspose2d(128, 64, kernel_size=3, stride=3, padding=1, output_padding=0),  # 3→7
             nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),   # 7→14
             nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.ConvTranspose2d(32, 1, kernel_size=3, stride=2, padding=1, output_padding=1),    # 14→28
             nn.Sigmoid()  # sortie normalisée entre 0 et 1
         )
@@ -488,11 +491,12 @@ def val_model(model: nn.Module, val_loader: DataLoader, criterion : nn.Module) -
     save_path : str or None
         If provided, saves the reconstructed image
 """
-def reconstruction_by_index(model: torch.nn.Module, dataset: torch.Tensor, index: int = 0, save_path: str = None):
+def reconstruction_by_index(model: torch.nn.Module, dataset: torch.Tensor, index: int = 0, save_directory: str = None, save_name: str = None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.eval()
-    
+    os.makedirs(f'{save_directory}', exist_ok=True)
+
     if index < 0 or index >= len(dataset):
         raise ValueError(f"Index {index} out of bounds for dataset of size {len(dataset)}")
     
@@ -502,28 +506,35 @@ def reconstruction_by_index(model: torch.nn.Module, dataset: torch.Tensor, index
         recon, _, _, _ = model(image)
     
     recon = recon.cpu().squeeze()  # remove batch and channel dimensions
+    image = image.cpu().squeeze()
     
-    plt.imsave(save_path, recon.numpy(), cmap='gray')
-    print(f"Reconstructed image saved to {save_path}")
+    threshold = 0.2  # adjust this between 0.3–0.7 depending on your recon values
+    recon_adjusted = torch.sigmoid((recon - 0.5) * 6)
+    recon_adjusted[recon_adjusted < threshold] = 0.0
 
+    combined = torch.cat((image, recon, recon_adjusted), dim=1)
+
+    plt.imsave(f'{save_directory}/{save_name}', combined.numpy(), cmap='gray')
+    print(f"Image saved to {save_directory}/{save_name}")
 
 if __name__ == "__main__":
     data_test = data_norm(open_dataset('dataset/t10k-images-idx3-ubyte',num_images = 32))
     labels_test = open_labels('dataset/t10k-labels-idx1-ubyte',num_labels = 32)
     model = load_model('models/vae_classification.pth')
+   
     for i in range(len(data_test)):
         reconstruction_by_index(
             model=model,
             dataset = data_test,
             index=i,
-        save_path=f'output/images/index_{i}_{labels_test[i]}.png')    
+            save_directory=f'output/images',
+            save_name=f'index_{i}_{labels_test[i]}.png'
+            )    
 
 """ To train a model
     data = data_norm(open_dataset('dataset/train-images-idx3-ubyte',num_images = 60000))
     labels = open_labels('dataset/train-labels-idx1-ubyte',num_labels = 60000)
-    data_0, labels_0, data_virgin, labels_virgin = create_validation(data,labels,validation_size=8)
-    data_train, labels_train, data_valid, labels_valid = create_validation(data_0,labels_0,validation_size=9992)
-
+    data_train, labels_train, data_valid, labels_valid = create_validation(data,labels,validation_size=10000)
 
     loader_train = create_batch(data_train, labels_train, batch_size=64, shuffle=True)
     loader_valid = create_batch(data_valid, labels_valid, batch_size=64, shuffle=False)
