@@ -474,7 +474,51 @@ def val_model(model: nn.Module, val_loader: DataLoader, criterion : nn.Module) -
     accuracy = 100 * correct / total
     return val_loss, accuracy
 
+"""Definition reconstruction_by_index
+    Display the reconstruction of a single image by its index in the dataset.
+
+    Parameters:
+    -----------
+    model : nn.Module
+        Trained VAE model
+    dataset : torch.Tensor
+        Dataset of images, shape (N, 1, 28, 28)
+    index : int
+        Index of the image to display
+    save_path : str or None
+        If provided, saves the reconstructed image
+"""
+def reconstruction_by_index(model: torch.nn.Module, dataset: torch.Tensor, index: int = 0, save_path: str = None):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    model.eval()
+    
+    if index < 0 or index >= len(dataset):
+        raise ValueError(f"Index {index} out of bounds for dataset of size {len(dataset)}")
+    
+    image = dataset[index].unsqueeze(0).to(device)  # add batch dimension
+    
+    with torch.no_grad():
+        recon, _, _, _ = model(image)
+    
+    recon = recon.cpu().squeeze()  # remove batch and channel dimensions
+    
+    plt.imsave(save_path, recon.numpy(), cmap='gray')
+    print(f"Reconstructed image saved to {save_path}")
+
+
 if __name__ == "__main__":
+    data_test = data_norm(open_dataset('dataset/t10k-images-idx3-ubyte',num_images = 32))
+    labels_test = open_labels('dataset/t10k-labels-idx1-ubyte',num_labels = 32)
+    model = load_model('models/vae_classification.pth')
+    for i in range(len(data_test)):
+        reconstruction_by_index(
+            model=model,
+            dataset = data_test,
+            index=i,
+        save_path=f'output/images/index_{i}_{labels_test[i]}.png')    
+
+""" To train a model
     data = data_norm(open_dataset('dataset/train-images-idx3-ubyte',num_images = 60000))
     labels = open_labels('dataset/train-labels-idx1-ubyte',num_labels = 60000)
     data_0, labels_0, data_virgin, labels_virgin = create_validation(data,labels,validation_size=8)
@@ -500,3 +544,4 @@ if __name__ == "__main__":
     )
     test_model(model,loader=loader_test) 
     save_model(model=model, name='vae_classification')
+"""
