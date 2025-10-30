@@ -99,7 +99,7 @@ class VAE(nn.Module):
             nn.ReLU()
         )
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, output_padding=1),  # 3→7
+            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=3, padding=1, output_padding=0),  # 3→7
             nn.ReLU(),
             nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),   # 7→14
             nn.ReLU(),
@@ -297,7 +297,7 @@ def load_model(path:str) -> nn.Module :
         Scalar tensor representing the total VAE loss (BCE + KLD) summed over the batch.
 """
 def vae_loss(recon_x, x, mu, logvar):
-    BCE = F.binary_cross_entropy(recon_x, x, reduction='mean')
+    BCE = F.binary_cross_entropy(recon_x, x, reduction='sum')
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     return BCE + KLD
 
@@ -499,4 +499,4 @@ if __name__ == "__main__":
         patience=2
     )
     test_model(model,loader=loader_test) 
-    save_model(model=model, name='vae_classification.pth')
+    save_model(model=model, name='vae_classification')
