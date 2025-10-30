@@ -236,3 +236,30 @@ def create_batch(data:torch.Tensor, labels: torch.Tensor, batch_size: int = 32, 
     dataset = TensorDataset(data, labels)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
     return loader
+
+'''Definition save_model
+    Save a PyTorch model to disk in the "models" folder.
+
+    Parameters:
+    model (nn.Module): The trained PyTorch model to save.
+    name (str): Name of the file (without extension) to save the model as.
+
+    Returns:
+    None
+    '''
+def save_model(model: nn.Module, name:str) -> None : 
+    torch.save(model, f'models/{name}.pth')
+
+'''Definition load_model
+    Load a PyTorch model from a .pth file.
+
+    Parameters:
+    path (str): Path to the saved model file (e.g., "models/model_name.pth").
+
+    Returns:
+    nn.Module: The loaded PyTorch model.
+    '''
+def load_model(path:str) -> nn.Module :
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = torch.load(path, weights_only=False)
+    return model.to(device)
